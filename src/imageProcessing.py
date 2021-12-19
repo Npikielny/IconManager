@@ -1,8 +1,11 @@
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 from math import sin, cos, atan2
 
 def Clear():
   return Image.new("RGBA", (1000, 1000), (0,0,0,0))
+
+def Empty():
+  return Image.new("RGBA", (1000, 1000), (0,0,0,255))
 
 def get_t(location, direction, origin, length):
   dx = location[0] - origin[0]
@@ -72,6 +75,9 @@ def sortColorT(colorT):
 def Gradient(colorT, origin, end):
   colorT.sort(key=sortColorT)
   print(colorT)
+  if len(colorT) == 1:
+    image = Image.new("RGBA", (1000, 1000), colorT[0][0])
+    return image
   image = Image.new("RGBA", (1000, 1000), (0,0,0,0))
   dx = end[0] - origin[0]
   dy = end[1] - origin[1]
@@ -83,3 +89,56 @@ def Gradient(colorT, origin, end):
   return image
 
 
+CLEAR_BORDER_TYPE = 0
+CIRCLE_BORDER_TYPE = -1
+RECT_BORDER_TYPE = -2
+
+def Border(border):
+  foregroundMap = Image.new("L", (1000, 1000), 0)
+  drawForeground = ImageDraw.Draw(foregroundMap)
+  backgroundMap = Image.new("L", (1000, 1000), 0)
+  drawBackground = ImageDraw.Draw(backgroundMap)
+  if border[0] == CIRCLE_BORDER_TYPE:
+    strokeWidth = border[1]
+    # solid
+    drawForeground.ellipse((1, 1, 999, 999), fill=255, outline=255)
+    # erasing
+    drawForeground.ellipse((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=0, outline=0)
+    drawBackground.ellipse((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=255, outline=255)
+  elif border[0] == RECT_BORDER_TYPE:
+    strokeWidth = border[1]
+    # solid
+    drawForeground.rectangle((1, 1, 999, 999), fill=255, outline=255)
+    # erasing
+    drawForeground.rectangle((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=0, outline=0)
+    drawBackground.rectangle((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=255, outline=255)
+  else:
+    radius = border[0]
+    strokeWidth = border[1]
+    # Full
+    drawForeground.rounded_rectangle((1, 1, 999, 999), fill=255, outline=255, width=0, radius=radius)
+    # Opaque
+    drawForeground.rounded_rectangle((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=0, outline=0, width=0, radius=radius)
+    drawBackground.rounded_rectangle((strokeWidth + 1, strokeWidth + 1, 999 - strokeWidth, 999 - strokeWidth), fill=255, outline=255, width=0, radius=radius)
+  return (backgroundMap, foregroundMap)
+
+def gT0(intensity):
+  if intensity == 0:
+    return 0
+  return 255
+
+def threshold(image):
+  mappings = image.split()
+  if len(mappings) == 1:
+    return image
+  red = mappings[0].point(gT0)
+  green = mappings[1].point(gT0)
+  blue = mappings[2].point(gT0)
+  return ImageOps.grayscale(Image.merge("RGB", (red, green, blue)))
+
+def composite(image, mask):
+  return Image.composite(image, Clear(), mask)
+
+def add(image1, image2, mask):
+  return Image.composite(image1, image2, mask)
+  

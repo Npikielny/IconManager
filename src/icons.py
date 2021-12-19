@@ -1,10 +1,11 @@
 import json
-from os import mkdir, remove, chdir
+from os import mkdir, remove, chdir, walk
+from sys import platform
 from os.path import exists
 from PIL import Image
 from math import pi
 
-from imageProcessing import Clear, Gradient
+from imageProcessing import Clear, Gradient, Border, CLEAR_BORDER_TYPE, CIRCLE_BORDER_TYPE, RECT_BORDER_TYPE, composite, threshold, add
 
 def hex_to_number(num):
     letters = ["a","b","c","d","e","f"]
@@ -119,8 +120,6 @@ def get_gradient(colors=[], origin=None, end=None):
     else:
         return Gradient(colors, origin, end)
 
-
-
 def get_image():
     valid_inputs = ["clear", "gradient"]
     result = input(
@@ -137,7 +136,7 @@ def get_image():
         message = None
         gradient = None
         while message is None:
-            gradient = get_gradient()
+            gradient = get_gradient([], None, None)
             gradient.show()
             message = input("Is this what you wanted (y/n)?")
             if not message.lower() in ["y", "yes"]:
@@ -145,6 +144,29 @@ def get_image():
         return gradient
     else:
         return Image.open(result)
+
+def get_number(message):
+    value = None
+    while type(value) != float or value < 0:
+        value = float(input(message))
+    return value
+
+def get_border_type():
+    options = { "circle": CIRCLE_BORDER_TYPE, "clear": CLEAR_BORDER_TYPE, "rectangle": RECT_BORDER_TYPE }
+    border = input("Input border type (can be circle, clear, rectangle, or rounded): ")
+    if border.lower() == "clear":
+        return (options[border.lower()], 0)
+    else:
+        stroke = int(get_number("Input stroke width in percent: ") / 100 * 1000)
+
+        if border.lower() in options:
+            return (options[border.lower()], stroke)
+        elif border.lower() == "rounded":
+            radius = int(1000 * get_number("Input corner radius (in percent): ") / 100)
+            return (radius, stroke)
+        else:
+            print("Invalid border type")
+            return get_border_type
 
 def create():
     chdir("themes")
@@ -162,17 +184,28 @@ def create():
 
     # Outline
     # print("insert an image path, `clear`, or `gradient` to create a gradient")
-    path = name + "/"
+    chdir(name)
+    borderType = get_border_type()
     # Background
-    print("Please input a background")
-    background = get_image()
-    background.save(path + "background.png")
+    if borderType == CLEAR_BORDER_TYPE:
+        background = Clear()
+    else:
+        print("Please input a background")
+        background = get_image()
     # Foreground
     print("Please input a foreground")
     foreground = get_image()
-    foreground.save(path + "foreground.png")
-    arson()
+    foreground.save("foreground.png")
+    # Outlines
+    backgroundMap, border = Border(borderType)
+    background = composite(background, backgroundMap)
 
+    background.save("background.png")
+    border.save("border.png")
+
+    chdir("..")
+    chdir("..")
+    arson()
 
 def addMappings():
     mappings = {}
@@ -215,8 +248,67 @@ def deleteMappings():
         deletingFile.write(json.dumps(mappings))
     arson()
 
+def setImage(path, image):
+    if platform == "darwin":
+        # macos
+        pass
+    elif platform == "win32":
+        # windows
+        pass
+    else:
+        raise BaseException("Unimplemented")
+
+def loadImage(image, background, foreground, outline):
+    thresholdedImage = threshold(image)
+    fullForeground = add(composite(foreground, thresholdedImage), outline, thresholdedImage) 
+    return add(fullForeground, background, threshold(fullForeground))
 
 def load():
+    with open("settings.json") as settingsFile:
+        settings = json.load(settingsFile)
+        desktopdir = settings.get("path")
+        if desktopdir == None:
+            print("Corrupted settings.json file")
+            return
+
+        with open("mappings.json") as mappingsFile:
+            chdir("themes")
+            theme = ""
+            while not exists(theme):
+                theme = input("Input a theme: ")
+            chdir(theme)
+            background = Image.open("background.png")
+            foreground = Image.open("foreground.png")
+            border = Image.open("border.png")
+            templatePath = "../../templates/"
+            if not exists("folder.png"):
+                with Image.open(templatePath + "folder.png") as folderImage:
+                    # mask = threshold(folderImage)
+                    # folder = composite(foreground, mask.resize(foreground.size))
+                    folder = loadImage(folderImage, Clear(), foreground, Clear())
+                    folder.save("folder.png")
+
+            folder = Image.open("folder.png")
+            
+            border = composite(foreground, threshold(border))
+
+            mappings = json.load(mappingsFile)
+            for (roots, dirs, files) in walk(desktopdir, topdown=True):
+                for dir in dirs:
+                    path = roots + dir
+                    if dir in mappings:
+                        imageName = mappings[dir]
+                        with Image.open(templatePath + imageName) as img:
+                            setImage(path, loadImage(img, background, foreground, border).show())
+                    else:
+                        setImage(path, folder)
+
+
+        for i in [ background, foreground, border, folder]:
+            i.close()
+        
+        chdir("..")
+        chdir("..")
     arson()
 
 
@@ -269,9 +361,15 @@ def onboard():
     if not exists("mappings.json"):
         print("It looks like we need to start mapping some images!")
         with open("mappings.json", "w") as file:
+            print()
             file.write(json.dumps({"folder": "folder.png"}))
-        addMappings()
         onboardingNeeded = True
+        addMappings()
+    if not exists("settings.json"):
+        with open("settings.json", "w") as settings:
+            desktopDir = input("Input desktop directory path: ")
+            settings.write(json.dumps({"path": desktopDir}))
+        
     return onboardingNeeded
 
 
