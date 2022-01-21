@@ -1,5 +1,5 @@
 import json
-from os import mkdir, remove, chdir, walk
+from os import mkdir, remove, chdir, walk, getcwd, system
 from sys import platform
 from os.path import exists
 from PIL import Image
@@ -198,7 +198,7 @@ def create():
     foreground.save("foreground.png")
     # Outlines
     backgroundMap, border = Border(borderType)
-    background = composite(background, backgroundMap)
+    backgroundMap.save("backgroundMap.png")
 
     background.save("background.png")
     border.save("border.png")
@@ -248,10 +248,18 @@ def deleteMappings():
         deletingFile.write(json.dumps(mappings))
     arson()
 
-def setImage(path, image):
+def setImage(filePath, image):
+    current_path = getcwd()
+
     if platform == "darwin":
         # macos
-        pass
+        iconPath = current_path + "/" + image
+        system("sips -i " + iconPath)
+        system("DeRez -only icns " + iconPath + " > tmpicns.rsrc")
+        system("Rez -append tmpicns.rsrc -o $'" + filePath + "/Icon\r'")
+        system("SetFile -a C " + filePath)
+        system("SetFile -a V $'" + filePath + "/Icon\r'")
+        system("touch " + filePath)
     elif platform == "win32":
         # windows
         pass
@@ -263,23 +271,25 @@ def loadImage(image, background, foreground, outline):
     fullForeground = add(composite(foreground, thresholdedImage), outline, thresholdedImage) 
     return add(fullForeground, background, threshold(fullForeground))
 
-def load():
+def load(theme = ""):
     with open("settings.json") as settingsFile:
         settings = json.load(settingsFile)
         desktopdir = settings.get("path")
+        depth = settings.get("depth")
         if desktopdir == None:
             print("Corrupted settings.json file")
             return
 
         with open("mappings.json") as mappingsFile:
             chdir("themes")
-            theme = ""
             while not exists(theme):
                 theme = input("Input a theme: ")
             chdir(theme)
             background = Image.open("background.png")
             foreground = Image.open("foreground.png")
             border = Image.open("border.png")
+            backgroundMap = Image.open("backgroundMap.png")
+            background = composite(background, backgroundMap)
             templatePath = "../../templates/"
             if not exists("folder.png"):
                 with Image.open(templatePath + "folder.png") as folderImage:
@@ -293,18 +303,30 @@ def load():
             border = composite(foreground, threshold(border))
 
             mappings = json.load(mappingsFile)
+            current_path = getcwd()
             for (roots, dirs, files) in walk(desktopdir, topdown=True):
-                for dir in dirs:
-                    path = roots + dir
-                    if dir in mappings:
-                        imageName = mappings[dir]
-                        with Image.open(templatePath + imageName) as img:
-                            setImage(path, loadImage(img, background, foreground, border).show())
-                    else:
-                        setImage(path, folder)
+                if roots.count("/") + 1 - desktopdir.count("/") > depth:
+                    pass
+                else:
+                    print()
+                    print(roots)
+                    print()
+                    for dir in dirs:
+                        path = roots + "/" + dir
+                        if dir in mappings:
+                            imageName = mappings[dir]
+                            if not exists(imageName):
+                                with Image.open(templatePath + imageName) as img:
+                                    icon = loadImage(img, background, foreground, border)
+                                    icon.save(imageName)
+                                    setImage(path, imageName)
+                            else:
+                                setImage(path, imageName)
+                        else:
+                            setImage(path, "folder.png")
 
 
-        for i in [ background, foreground, border, folder]:
+        for i in [ background, foreground, border, folder, backgroundMap]:
             i.close()
         
         chdir("..")
@@ -334,12 +356,19 @@ def arson():
     operative = input(
         "What would you like to do today? ")
 
+    operation = operative.lower().split()
+
+    if operative.lower() in operatives:
+        operatives[operative]()
+    elif len(operation) > 1 and operation[0] in operatives and operation[0] == "load":
+        if operation[0] == "load":
+            rest = ""
+            for i in operation[1:]:
+                load(rest)
     if not operative.lower() in operatives:
         print("Sadly, " + operative + " is not a valid command yet :/ ")
         print("Valid commands are: " + str(list(operatives.keys())))
         arson()
-    else:
-        operatives[operative]()
 
 
 def onboard():
@@ -368,7 +397,8 @@ def onboard():
     if not exists("settings.json"):
         with open("settings.json", "w") as settings:
             desktopDir = input("Input desktop directory path: ")
-            settings.write(json.dumps({"path": desktopDir}))
+            depth = int(get_number("Input icon depth (number of folders deep the program will traverse before stopping): "))
+            settings.write(json.dumps({"path": desktopDir, "depth": depth}))
         
     return onboardingNeeded
 
